@@ -1,0 +1,33 @@
+# Lives in the build-output repo supersoon/andreasanderssohn.com (copied from public/ by deploy.sh).
+# Fetches the DWD webcam image Hamburg-SW (harbour, CC BY 4.0, source: Deutscher Wetterdienst) once an hour
+# and serves it from our own domain as /live/hamburg.jpg, so visitors never make a request to a third party.
+name: Webcam Hamburg
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+concurrency: webcam
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download latest image
+        run: |
+          curl -fsS --retry 3 -o /tmp/hamburg.jpg https://opendata.dwd.de/weather/webcam/Hamburg-SW/Hamburg-SW_latest_816.jpg
+          # keep the old image if the download is broken (not a JPEG or suspiciously small)
+          file /tmp/hamburg.jpg | grep -q JPEG
+          [ "$(stat -c %s /tmp/hamburg.jpg)" -gt 10000 ]
+          mkdir -p live && cp /tmp/hamburg.jpg live/hamburg.jpg
+      - name: Commit and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add live/hamburg.jpg
+          git diff --cached --quiet && exit 0
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "Webcam $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q
+          gh api -X POST "repos/${{ github.repository }}/pages/builds" >/dev/null || true
